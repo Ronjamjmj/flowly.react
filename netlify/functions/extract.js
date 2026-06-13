@@ -1,5 +1,3 @@
-const fetch = require('node-fetch'); // In Node 18+ ist fetch meist global, node-fetch dient zur Sicherheit
-
 exports.handler = async function(event, context) {
   const headers = {
     'Access-Control-Allow-Origin': '*',

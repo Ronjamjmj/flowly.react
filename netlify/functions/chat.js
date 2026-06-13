@@ -1,63 +1,72 @@
-export async function handler(event) {
-  const headers = {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'Content-Type',
-    'Access-Control-Allow-Methods': 'POST, OPTIONS'
-  };
+const fetch = require('node-fetch');
 
-  if (event.httpMethod === 'OPTIONS') {
-    return { statusCode: 204, headers, body: '' };
-  }
+exports.handler = async function(event, context) {
+  const headers = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS'
+  };
 
-  if (event.httpMethod !== 'POST') {
-    return { statusCode: 405, headers, body: JSON.stringify({ error: 'Method not allowed' }) };
-  }
+  if (event.httpMethod === 'OPTIONS') {
+    return { statusCode: 200, headers, body: '' };
+  }
 
-  let messages;
-  try {
-    const body = JSON.parse(event.body || '{}');
-    messages = body.messages;
-  } catch (e) {
-    return { statusCode: 400, headers, body: JSON.stringify({ error: 'Invalid JSON body' }) };
-  }
+  if (event.httpMethod !== 'POST') {
+    return { statusCode: 405, headers, body: JSON.stringify({ error: 'Methode nicht erlaubt' }) };
+  }
 
-  if (!Array.isArray(messages) || messages.length === 0) {
-    return { statusCode: 400, headers, body: JSON.stringify({ error: 'messages ist erforderlich und darf nicht leer sein' }) };
-  }
+  try {
+    const { messages } = JSON.parse(event.body);
 
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    return { statusCode: 500, headers, body: JSON.stringify({ error: 'ANTHROPIC_API_KEY ist nicht konfiguriert' }) };
-  }
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      return { statusCode: 500, headers, body: JSON.stringify({ error: 'Google Gemini API-Key (GEMINI_API_KEY) fehlt.' }) };
+    }
 
-  const SYS = 'Du bist ein präziser, ADHS-freundlicher Hochschul-Tutor. FORMAT: ## Überschriften, **fett**, Aufzählungen, max. 4 Sätze pro Abschnitt. ⭐ Muss wissen | 💡 Gut zu wissen | 🚨 Klausurrelevant. Auf Deutsch. Präzise wie Professor, verständlich wie Freund.';
+    // Übersetze die Chat-History in das Google Gemini Format (user -> user, assistant -> model)
+    const geminiContents = (messages || []).map(msg => {
+      const role = msg.role === 'assistant' ? 'model' : 'user';
+      return {
+        role: role,
+        parts: [{ text: msg.content }]
+      };
+    });
 
-  try {
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01'
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 1000,
-        system: SYS,
-        messages
-      })
-    });
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        contents: geminiContents
+      })
+    });
 
-    const data = await response.json();
+    const data = await response.json();
 
-    if (data.error) {
-      return { statusCode: 502, headers, body: JSON.stringify({ error: data.error.message || 'Anthropic API Fehler' }) };
-    }
+    if (!response.ok) {
+      return { 
+        statusCode: response.status, 
+        headers, 
+        body: JSON.stringify({ error: data.error?.message || 'Fehler von Gemini' }) 
+      };
+    }
 
-    const reply = (data.content || []).map(b => b.text || '').join('') || 'Keine Antwort.';
+    const geminiText = data.candidates?.[0]?.content?.parts?.[0]?.text || 'Entschuldigung, ich konnte keine Antwort generieren.';
 
-    return { statusCode: 200, headers, body: JSON.stringify({ reply }) };
-  } catch (e) {
-    return { statusCode: 500, headers, body: JSON.stringify({ error: e.message || 'Unbekannter Fehler' }) };
-  }
-}
+    const mappedResponse = {
+      content: [{
+        text: geminiText
+      }]
+    };
+
+    return {
+      statusCode: 200,
+      headers,
+      body: JSON.stringify(mappedResponse)
+    };
+  } catch (error) {
+    console.error('Server-Fehler:', error);
+    return { statusCode: 500, headers, body: JSON.stringify({ error: 'Interner Server-Fehler: ' + error.message }) };
+  }
+};

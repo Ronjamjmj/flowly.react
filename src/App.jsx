@@ -10,6 +10,7 @@ import { initialSubjects, initialGami, ICONS, HUES } from './data.js';
 import { fmt } from './helpers.js';
 
 export default function App() {
+  
   const [subjects, setSubjects] = useState(initialSubjects);
   const [gami, setGami] = useState(initialGami);
   const [view, setView] = useState('dash');
